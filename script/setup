@@ -19,8 +19,14 @@ echo ""
 # Prerequisites
 # ---------------------------------------------------------------------------
 if ! command -v claude &>/dev/null; then
-  echo "Error: 'claude' CLI not found."
-  echo "Install it from: https://docs.anthropic.com/en/docs/claude-code/overview"
+  echo ""
+  echo "❌ ERROR: Claude Code CLI is not installed."
+  echo ""
+  echo "Please install Claude Code first:"
+  echo "→ https://docs.anthropic.com/en/docs/claude-code/overview"
+  echo ""
+  echo "After installing, run this setup script again."
+  echo ""
   exit 1
 fi
 
@@ -111,9 +117,13 @@ if [[ "$SETUP_MCPS" =~ ^[Yy] ]]; then
           if claude mcp list 2>/dev/null | grep -q "^$NAME "; then
             echo "      $NAME MCP already configured (skipping)."
           else
-            claude mcp add --transport "$TRANSPORT" --scope "$SCOPE" "$NAME" "$URL" 2>/dev/null \
-              && echo "      $NAME MCP added." \
-              || echo "      $NAME MCP setup failed — you can add it later via /mcp."
+            if claude mcp add --transport "$TRANSPORT" --scope "$SCOPE" "$NAME" "$URL" 2>/dev/null; then
+              echo "      $NAME MCP added."
+            else
+              echo "      ⚠️  $NAME MCP setup failed."
+              echo "      To add it manually in Claude Code: type /mcp → Add MCP server"
+              echo "      Name: $NAME | URL: $URL | Transport: $TRANSPORT"
+            fi
           fi
         elif [ "$TYPE" = "plugin" ]; then
           if claude plugin list 2>/dev/null | grep -q "^$NAME "; then
@@ -168,5 +178,4 @@ echo "[4/4] Done!"
 echo ""
 echo "  Run 'claude' and try: /team-status, /my-status, /meeting-digest"
 echo "  Authenticate MCP servers when prompted (type /mcp)."
-echo "  Update skills later: cd pm-claude-skills && script/update"
 echo ""
