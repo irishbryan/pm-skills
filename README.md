@@ -1,51 +1,35 @@
 # PM Tools for Claude Code
 
-**Simple status updates using Claude Code.** Type `/team-status`, get Slack-ready output
+Simple status updates using Claude Code. Type `/team-status`, get Slack-ready output.
 
-<img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/39222af1-c639-4999-9af1-7f318843f666" />
+<p align="center">
+  <img width="600" alt="PM Tools Overview" src="https://github.com/user-attachments/assets/39222af1-c639-4999-9af1-7f318843f666" />
+</p>
 
 ## Install
 
-**Prerequisites:** [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/overview) must be installed first.
+**Prerequisites:** [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/overview)
 
-**Steps:**
-1. **Clone the repository**
-   ```bash
-   git clone <repo-url> pm-claude-skills
-   cd pm-claude-skills
-   ```
+```bash
+git clone <repo-url> pm-claude-skills && cd pm-claude-skills && script/setup
+```
 
-2. **Run setup script** (asks for your name, email, teams, and optional integrations)
-   ```bash
-   script/setup
-   ```
+Setup asks for your name, email, and teams. Then open Claude Code, type `/mcp` to connect Linear/Granola, and try:
 
-3. **Open Claude Code**
-   ```bash
-   claude
-   ```
+```
+/pm-claude-skills:my-status for last week
+```
 
-4. **Connect MCP servers** (Linear, Granola, etc.)
-   ```
-   /mcp
-   ```
-   Follow the browser prompts to authenticate each service.
+## Commands
 
-5. **Try it!**
-   ```
-   /pm-claude-skills:my-status for last week
-   ```
-
-**Uninstall:** Run `script/uninstall` from the repo directory.
-
-## Usage
-
-| Command | What You Get |
+| | |
 |---------|-------------|
-| 📊 `/pm-claude-skills:team-status last week` | **Shipped** → **In Progress** → **Blocked**<br/>Clean rollup of what your team shipped, what's moving, what's stuck |
-| 👤 `/pm-claude-skills:my-status since Monday` | 🟢🟡🔴 **PROGRESS** → **NEXT** → **RISKS**<br/>Your personal wins, upcoming work, and what needs help |
+| 📊 `/pm-claude-skills:team-status last week` | **Shipped** → **In Progress** → **Blocked**<br/>What your team shipped, what's moving, what's stuck |
+| 👤 `/pm-claude-skills:my-status since Monday` | 🟢🟡🔴 **PROGRESS** → **NEXT** → **RISKS**<br/>Your wins, upcoming work, what needs help |
 | 🤝 `/pm-claude-skills:meeting-digest partnership` | **tl;dr** + **Key Points** + **Action Items**<br/>Instant recap ready to post in Slack |
 
-💡 **All outputs are Slack-ready** — just copy and paste
+💡 All outputs are Slack-ready — just copy and paste
 
-**Customize:** Edit `~/.claude/pm-claude-skills.local.md` to change teams or preferences.
+---
+
+**Customize:** `~/.claude/pm-claude-skills.local.md` • **Uninstall:** `script/uninstall`
