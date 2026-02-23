@@ -14,7 +14,7 @@ Simple status updates using Claude Code. Works with Linear, Granola, and Notion.
 git clone <repo-url> pm-claude-skills && cd pm-claude-skills && script/setup
 ```
 
-Setup asks for your name, email, and teams. Then open Claude Code, type `/mcp` to connect Linear/Granola, and try:
+Setup adds your name, email, and teams to private context file. Then open Claude Code and type `/mcp` to connect your tools. 
 
 ```
 /pm-claude-skills:my-status for last week
