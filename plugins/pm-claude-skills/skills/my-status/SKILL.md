@@ -28,7 +28,7 @@ allowed-tools:
 ### 2. Gather Data from Multiple Sources
 
 **Linear (broad project view):**
-- Get user's teams using list_teams, then:
+- Get user's teams using list_teams (include both public AND private teams), then:
   - Query all projects on user's team(s) to understand team-level work
   - For each active project, get recent issues to understand project status
 - Issues assigned to user (completed, in-progress, blocked, backlog with recent updates)
@@ -37,6 +37,7 @@ allowed-tools:
 - Use list_projects with recent updates to see what's moving across your area
 - Cast a wide net: You're a PM, so include work you're coordinating even if not directly assigned
 - Query multiple times if needed to get full picture of your scope
+- **Important**: Some users track tasks in private teams — ensure private teams are included in all queries
 
 **Granola (strategic context):**
 - Query for "decisions made, action items, and key outcomes from meetings in last [N] days"
