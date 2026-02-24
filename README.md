@@ -20,6 +20,7 @@ Simple status updates using Claude Code. Type `/team-status`, `/my-status` and g
 | 📊 `/team-status` | What your team shipped, what's in progress, what's blocked |
 | 👤 `/my-status` | Your progress, upcoming work, and risks |
 | 🤝 `/meeting-digest` | Meeting summary with key points and action items |
+| 💬 `/slack-recap` | Important Slack messages requiring your attention |
 
 💡 All outputs are Slack-ready — just copy and paste
 
