@@ -1,6 +1,10 @@
-# PM Tools for Claude Code
+# pm-skills
 
-Simple status updates using Claude Code. Type `/team-status`, `/my-status` and get Slack-ready output.
+Essential PM skills for Claude Code and Codex.
+
+- Generate the updates PMs write all the time: team status, personal status, meeting digests, and Slack recaps.
+- Use the same skills across tools instead of rebuilding prompts for each agent.
+- Get started quickly with one setup script.
 
 <p align="center">
   <img width="1000" alt="PM Tools Overview" src="https://github.com/user-attachments/assets/d6cfc988-1056-4a23-962a-90e5c31852a0" />
@@ -8,22 +12,24 @@ Simple status updates using Claude Code. Type `/team-status`, `/my-status` and g
 
 ## Quick Start
 
-1. **Prerequisites:** [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/overview)
-2. Clone repo and run `script/setup`
-3. Open claude and connect MCPs (`/mcp`)
-4. `/my-status for last week`
+1. `script/setup`
+2. Connect Linear, Granola, Slack, etc. if needed
+3. Run `/pm-skills:my-status` in Claude Code or `$pm-skills my-status` in Codex
 
-## Commands
+## Skills
 
-| | |
-|---------|-------------|
-| 📊 `/team-status` | What your team shipped, what's in progress, what's blocked |
-| 👤 `/my-status` | Your progress, upcoming work, and risks |
-| 🤝 `/meeting-digest` | Meeting summary with key points and action items |
-| 💬 `/slack-recap` | Important Slack messages requiring your attention |
+- `pm-skills:team-status` for shipped, in-progress, and risk updates
+- `pm-skills:my-status` for personal progress, next steps, and risks
+- `pm-skills:meeting-digest` for decisions and action items from meetings
+- `pm-skills:slack-recap` for important Slack follow-ups
 
-💡 All outputs are Slack-ready — just copy and paste
+## Works Across Tools
 
----
+- Claude Code setup places symlinks in `~/.claude`
+- Codex installs under `~/.codex/skills/pm-skills`
+- Only `pm-skills`-namespaced files and symlinks are created
 
-**Customize:** `~/.claude/pm-claude-skills.local.md` • **Uninstall:** `script/uninstall`
+## Useful Commands
+
+- Refresh just your profile: `script/setup --profile-only`
+- Remove installed wrappers: `script/uninstall`

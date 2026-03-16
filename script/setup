@@ -3,179 +3,585 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
-PM_LOCAL="$HOME/.claude/pm-claude-skills.local.md"
+CONFIG_ROOT="${XDG_CONFIG_HOME:-$HOME/.config}/pm-skills"
+PROFILE_PATH="$CONFIG_ROOT/profile.md"
+LEGACY_PROFILE="$HOME/.claude/pm-claude-skills.local.md"
+CLAUDE_COMMANDS_TARGET="$HOME/.claude/commands"
+CLAUDE_SKILLS_TARGET="$HOME/.claude/skills"
+CLAUDE_SKILLS_SOURCE="$REPO_DIR/plugins/pm-skills/skills"
+CLAUDE_COMMAND_WATERMARK="<!-- managed-by: pm-skills -->"
+CODEX_SOURCE="$REPO_DIR/adapters/codex/pm-skills"
+CODEX_TARGET="$HOME/.codex/skills/pm-skills"
+PROFILE_STATUS=""
+CLAUDE_STATUS="not installed"
+CODEX_STATUS="not installed"
+LEGACY_PROFILE_IMPORTED="false"
+LEGACY_CLEANUP_STATUS="not needed"
+REFRESH_PROFILE="false"
+PROFILE_ONLY="false"
 
-# ---------------------------------------------------------------------------
-# Banner
-# ---------------------------------------------------------------------------
-echo ""
-echo "============================================"
-echo "  PM Tools Setup"
-echo "  Installs shared Claude Code skills globally"
-echo "============================================"
-echo ""
+ensure_namespaced_path() {
+  local path="$1"
+  local base
 
-# ---------------------------------------------------------------------------
-# Prerequisites
-# ---------------------------------------------------------------------------
-if ! command -v claude &>/dev/null; then
-  echo ""
-  echo "❌ ERROR: Claude Code CLI is not installed."
-  echo ""
-  echo "Please install Claude Code first:"
-  echo "→ https://docs.anthropic.com/en/docs/claude-code/overview"
-  echo ""
-  echo "After installing, run this setup script again."
-  echo ""
-  exit 1
-fi
+  base="$(basename "$path")"
+  case "$base" in
+  pm-skills | pm-skills:* | pm-skills-*) ;;
+  *)
+    echo "Refusing to manage non-namespaced path: $path" >&2
+    exit 1
+    ;;
+  esac
+}
 
-# ---------------------------------------------------------------------------
-# Register marketplace + install plugin
-# ---------------------------------------------------------------------------
-echo "[1/4] Installing pm-claude-skills plugin..."
-claude plugin marketplace remove pm-claude-skills >/dev/null 2>&1 || true
-claude plugin marketplace add "$REPO_DIR" >/dev/null 2>&1
-claude plugin uninstall pm-claude-skills >/dev/null 2>&1 || true
-claude plugin install pm-claude-skills@pm-claude-skills >/dev/null 2>&1
-echo "      Done. Linear MCP included — authenticate with /mcp in Claude."
+assert_managed_paths_are_namespaced() {
+  local command_file
+  local skill
 
-# ---------------------------------------------------------------------------
-# Personalise — how Claude knows about you as a PM
-# ---------------------------------------------------------------------------
-echo "[2/4] Personal configuration..."
-if [ -f "$PM_LOCAL" ]; then
-  echo "      [skip] $PM_LOCAL (already exists, keeping your config)"
-else
-  echo ""
-  read -rp "  What's your first name? " PM_NAME
-  read -rp "  What's your work email? " PM_EMAIL
-  read -rp "  What are your primary focus areas as a PM? " PM_FOCUS
-  echo ""
-  echo "  Which teams do you want to track in team-status reports?"
-  echo "  (Enter team names comma-separated, or press Enter to skip)"
-  read -rp "  Teams: " PM_TEAMS
+  ensure_namespaced_path "$CODEX_TARGET"
 
-  mkdir -p "$(dirname "$PM_LOCAL")"
-  cat > "$PM_LOCAL" <<EOF
-# PM Tools Personal Context
-- Name: ${PM_NAME}
-- Email: ${PM_EMAIL}
-- Focus areas: ${PM_FOCUS}
+  for command_file in \
+    "$CLAUDE_COMMANDS_TARGET/pm-skills:my-status.md" \
+    "$CLAUDE_COMMANDS_TARGET/pm-skills:team-status.md" \
+    "$CLAUDE_COMMANDS_TARGET/pm-skills:meeting-digest.md" \
+    "$CLAUDE_COMMANDS_TARGET/pm-skills:slack-recap.md"; do
+    ensure_namespaced_path "$command_file"
+  done
 
-## Teams
+  for skill in my-status team-status meeting-digest slack-recap; do
+    ensure_namespaced_path "$CLAUDE_SKILLS_TARGET/pm-skills-$skill"
+  done
+}
+
+usage() {
+  cat <<'EOF'
+Usage: script/setup [--refresh-profile] [--profile-only]
+
+  --refresh-profile  Re-prompt and rewrite the shared profile
+  --profile-only     Update only the shared profile and skip wrapper install
 EOF
+}
 
-  if [ -n "$PM_TEAMS" ]; then
-    # Convert comma-separated list to markdown bullets
-    IFS=',' read -ra TEAM_ARRAY <<< "$PM_TEAMS"
-    for team in "${TEAM_ARRAY[@]}"; do
-      # Trim whitespace
-      team=$(echo "$team" | xargs)
-      echo "- $team" >> "$PM_LOCAL"
-    done
+while [ $# -gt 0 ]; do
+  case "$1" in
+  --refresh-profile)
+    REFRESH_PROFILE="true"
+    ;;
+  --profile-only)
+    PROFILE_ONLY="true"
+    REFRESH_PROFILE="true"
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *)
+    usage
+    exit 1
+    ;;
+  esac
+  shift
+done
+
+print_banner() {
+  echo ""
+  echo "pm-skills setup"
+}
+
+print_section() {
+  local label="$1"
+
+  echo ""
+  echo "$label"
+}
+
+print_result() {
+  local label="$1"
+  local value="$2"
+
+  echo "$label: $value"
+}
+
+trim() {
+  printf '%s' "$1" | xargs
+}
+
+profile_value() {
+  local file="$1"
+  local key="$2"
+
+  [ -f "$file" ] || return 0
+
+  awk -F': ' -v key="$key" '$0 ~ "^- " key ":" {print substr($0, index($0, ": ") + 2); exit}' "$file"
+}
+
+profile_section_list() {
+  local file="$1"
+  local section="$2"
+
+  [ -f "$file" ] || return 0
+
+  awk -v section="$section" '
+    $0 == "## " section {in_section=1; next}
+    in_section && /^## / {exit}
+    in_section && /^- / {
+      item = substr($0, 3)
+      if (length(item) > 0) {
+        items = items ? items ", " item : item
+      }
+    }
+    END {print items}
+  ' "$file"
+}
+
+prompt_with_default() {
+  local prompt="$1"
+  local default_value="${2:-}"
+  local value=""
+
+  if [ -n "$default_value" ]; then
+    read -rp "$prompt [$default_value]: " value
+    printf '%s' "${value:-$default_value}"
   else
-    echo "# (Add team names here, one per line with '- ' prefix)" >> "$PM_LOCAL"
+    read -rp "$prompt: " value
+    printf '%s' "$value"
   fi
+}
 
-  cat >> "$PM_LOCAL" <<EOF
+confirm_optional() {
+  local prompt="$1"
+  local reply=""
 
-## Session behavior
-- "last week" means previous Monday–Friday
-- For personal status, scope to issues assigned to me
-- For team status, scope to my teams listed above
-EOF
+  read -rp "$prompt [y/N]: " reply
+  [[ "$reply" =~ ^[Yy] ]]
+}
 
-  echo "      Wrote $PM_LOCAL"
-  echo "      (Edit ~/.claude/pm-claude-skills.local.md to adjust teams or preferences.)"
-fi
+write_profile() {
+  local name="$1"
+  local email="$2"
+  local focus="$3"
+  local teams="$4"
+  local slack_channels="$5"
 
-# ---------------------------------------------------------------------------
-# MCP connections — configure or skip each one
-# ---------------------------------------------------------------------------
-echo ""
-echo "[3/4] MCP connections"
+  {
+    printf '# pm-skills profile\n'
+    printf '> Keep this file high-level. Avoid customer names, confidential project details, sensitive metrics, and exact roadmap dates.\n'
+    printf '> Prefer broad themes, team names, channel names, and stakeholder roles.\n\n'
+    printf -- '- Name: %s\n' "$name"
+    printf -- '- Email: %s\n' "$email"
+    printf -- '- Focus areas: %s\n' "$focus"
 
-MCP_CONFIG="$REPO_DIR/mcp-servers.json"
-
-read -rp "  Set up MCP connections now? You can always do this later. (y/n) " SETUP_MCPS
-if [[ "$SETUP_MCPS" =~ ^[Yy] ]]; then
-  if [ -f "$MCP_CONFIG" ] && command -v python3 &>/dev/null; then
-    COUNT=$(python3 -c "import json; data=json.load(open('$MCP_CONFIG')); print(len(data))")
-    for (( i=0; i<COUNT; i++ )); do
-      NAME=$(python3 -c "import json; data=json.load(open('$MCP_CONFIG')); print(data[$i]['name'])")
-      TYPE=$(python3 -c "import json; data=json.load(open('$MCP_CONFIG')); print(data[$i]['type'])")
-      PROMPT=$(python3 -c "import json; data=json.load(open('$MCP_CONFIG')); print(data[$i]['prompt'])")
-
-      read -rp "  $PROMPT (y/n) " ANSWER
-      if [[ "$ANSWER" =~ ^[Yy] ]]; then
-        if [ "$TYPE" = "mcp" ]; then
-          TRANSPORT=$(python3 -c "import json; data=json.load(open('$MCP_CONFIG')); print(data[$i].get('transport','stdio'))")
-          URL=$(python3 -c "import json; data=json.load(open('$MCP_CONFIG')); print(data[$i].get('url',''))")
-          SCOPE=$(python3 -c "import json; data=json.load(open('$MCP_CONFIG')); print(data[$i].get('scope','user'))")
-          # Check if MCP already exists
-          if claude mcp list 2>/dev/null | grep -q "^$NAME "; then
-            echo "      $NAME MCP already configured (skipping)."
-          else
-            if claude mcp add --transport "$TRANSPORT" --scope "$SCOPE" "$NAME" "$URL" 2>/dev/null; then
-              echo "      $NAME MCP added."
-            else
-              echo "      ⚠️  $NAME MCP setup failed."
-              echo "      To add it manually in Claude Code: type /mcp → Add MCP server"
-              echo "      Name: $NAME | URL: $URL | Transport: $TRANSPORT"
-            fi
-          fi
-        elif [ "$TYPE" = "plugin" ]; then
-          if claude plugin list 2>/dev/null | grep -q "^$NAME "; then
-            echo "      $NAME plugin already installed (skipping)."
-          else
-            claude plugin install "$NAME" 2>/dev/null \
-              && echo "      $NAME plugin installed." \
-              || echo "      $NAME plugin install failed — you can add it later."
-          fi
-        fi
-      else
-        echo "      Skipped $NAME."
-      fi
-    done
-  else
-    # Hardcoded fallback for users without config file or python3
-    read -rp "  Install the Notion plugin? (y/n) " INSTALL_NOTION
-    if [[ "$INSTALL_NOTION" =~ ^[Yy] ]]; then
-      if claude plugin list 2>/dev/null | grep -q "^Notion "; then
-        echo "      Notion plugin already installed (skipping)."
-      else
-        claude plugin install Notion 2>/dev/null \
-          && echo "      Notion plugin installed." \
-          || echo "      Notion plugin install failed — you can add it later."
-      fi
-    else
-      echo "      Skipped Notion."
+    if [ -n "$teams" ]; then
+      printf '\n## Teams\n'
+      IFS=',' read -ra TEAM_ARRAY <<<"$teams"
+      for team in "${TEAM_ARRAY[@]}"; do
+        team="$(trim "$team")"
+        [ -n "$team" ] && printf -- '- %s\n' "$team"
+      done
     fi
 
-    read -rp "  Set up Granola MCP for meeting notes? (y/n) " INSTALL_GRANOLA
-    if [[ "$INSTALL_GRANOLA" =~ ^[Yy] ]]; then
-      if claude mcp list 2>/dev/null | grep -q "^granola "; then
-        echo "      Granola MCP already configured (skipping)."
-      else
-        claude mcp add --transport http --scope user granola https://mcp.granola.ai/mcp 2>/dev/null \
-          && echo "      Granola MCP added." \
-          || echo "      Granola MCP setup failed — you can add it later via /mcp."
-      fi
-    else
-      echo "      Skipped Granola."
+    if [ -n "$slack_channels" ]; then
+      printf '\n## Slack\n'
+      printf -- '- Main channels or groups: %s\n' "$slack_channels"
+    fi
+
+    printf '\n## Session behavior\n'
+    printf -- '- "last week" means previous Monday-Friday\n'
+    printf -- '- For personal status, include coordination work as well as directly assigned work\n'
+    printf -- '- For team status, prefer the teams listed above when they are present\n'
+  } >"$PROFILE_PATH"
+}
+
+ensure_profile() {
+  if [ -f "$PROFILE_PATH" ] && [ "$REFRESH_PROFILE" != "true" ]; then
+    print_result "Skipped" "profile already exists at $PROFILE_PATH"
+    PROFILE_STATUS="$PROFILE_PATH"
+    return
+  fi
+
+  mkdir -p "$CONFIG_ROOT"
+
+  if [ -f "$LEGACY_PROFILE" ] && [ ! -f "$PROFILE_PATH" ] && [ "$REFRESH_PROFILE" != "true" ]; then
+    cp "$LEGACY_PROFILE" "$PROFILE_PATH"
+    print_result "Imported" "$PROFILE_PATH"
+    PROFILE_STATUS="$PROFILE_PATH"
+    LEGACY_PROFILE_IMPORTED="true"
+    return
+  fi
+
+  local defaults_file=""
+  if [ -f "$PROFILE_PATH" ]; then
+    defaults_file="$PROFILE_PATH"
+  elif [ -f "$LEGACY_PROFILE" ]; then
+    defaults_file="$LEGACY_PROFILE"
+    LEGACY_PROFILE_IMPORTED="true"
+  fi
+
+  local default_name
+  local default_email
+  local default_focus
+  local default_teams
+  local default_slack_channels
+  local has_default_slack="false"
+  default_name="$(profile_value "$defaults_file" "Name")"
+  default_email="$(profile_value "$defaults_file" "Email")"
+  default_focus="$(profile_value "$defaults_file" "Focus areas")"
+  default_teams="$(profile_section_list "$defaults_file" "Teams")"
+  default_slack_channels="$(profile_value "$defaults_file" "Main channels or groups")"
+  if [ -z "$default_slack_channels" ]; then
+    default_slack_channels="$(profile_value "$defaults_file" "Key channels or groups")"
+  fi
+  if [ -z "$default_slack_channels" ]; then
+    default_slack_channels="$(profile_value "$defaults_file" "Key channels")"
+  fi
+  if [ -n "$default_slack_channels" ]; then
+    has_default_slack="true"
+  fi
+
+  PM_NAME="$(prompt_with_default "Name" "$default_name")"
+  PM_EMAIL="$(prompt_with_default "Email" "$default_email")"
+  PM_FOCUS="$(prompt_with_default "Focus areas" "$default_focus")"
+
+  PM_TEAMS=""
+  if [ -n "$default_teams" ]; then
+    PM_TEAMS="$(prompt_with_default "Teams (comma-separated, optional)" "$default_teams")"
+  elif confirm_optional "Add teams?"; then
+    PM_TEAMS="$(prompt_with_default "Teams (comma-separated)" "")"
+  fi
+
+  PM_SLACK_CHANNELS=""
+  if [ "$has_default_slack" = "true" ]; then
+    PM_SLACK_CHANNELS="$(prompt_with_default "What channels do you mainly work in? (optional)" "$default_slack_channels")"
+  elif confirm_optional "Add where you work in Slack day to day?"; then
+    PM_SLACK_CHANNELS="$(prompt_with_default "What channels do you mainly work in?" "")"
+  fi
+
+  write_profile \
+    "$PM_NAME" \
+    "$PM_EMAIL" \
+    "$PM_FOCUS" \
+    "$PM_TEAMS" \
+    "$PM_SLACK_CHANNELS"
+
+  print_result "Saved" "$PROFILE_PATH"
+  PROFILE_STATUS="$PROFILE_PATH"
+}
+
+cleanup_legacy_installs() {
+  print_section "Legacy cleanup"
+
+  local legacy_plugin_installed="false"
+  local cleanup_needed="false"
+
+  if command -v claude >/dev/null 2>&1; then
+    if claude plugin list 2>/dev/null | grep -q "^pm-claude-skills "; then
+      legacy_plugin_installed="true"
+      cleanup_needed="true"
     fi
   fi
-else
-  echo "      Skipped. Re-run script/setup to configure later."
-fi
 
-# ---------------------------------------------------------------------------
-# Done
-# ---------------------------------------------------------------------------
-echo ""
-echo "[4/4] Done!"
-echo ""
-echo "  Run 'claude' and try: /team-status, /my-status, /meeting-digest"
-echo "  Authenticate MCP servers when prompted (type /mcp)."
-echo ""
+  if [ -f "$LEGACY_PROFILE" ]; then
+    cleanup_needed="true"
+  fi
+
+  if [ "$cleanup_needed" != "true" ]; then
+    print_result "Skipped" "no legacy pm-claude-skills artifacts found"
+    LEGACY_CLEANUP_STATUS="not needed"
+    return
+  fi
+
+  read -rp "Remove legacy pm-claude-skills artifacts? [y/N]: " CLEANUP_LEGACY
+  if [[ ! "$CLEANUP_LEGACY" =~ ^[Yy] ]]; then
+    print_result "Kept" "legacy pm-claude-skills artifacts"
+    LEGACY_CLEANUP_STATUS="kept"
+    return
+  fi
+
+  if [ "$legacy_plugin_installed" = "true" ]; then
+    claude plugin uninstall pm-claude-skills >/dev/null 2>&1 || true
+    claude plugin marketplace remove pm-claude-skills >/dev/null 2>&1 || true
+    print_result "Removed" "legacy Claude plugin and marketplace entry"
+  fi
+
+  if [ -f "$LEGACY_PROFILE" ]; then
+    if [ "$LEGACY_PROFILE_IMPORTED" = "true" ]; then
+      read -rp "Delete imported legacy profile at $LEGACY_PROFILE? [y/N]: " DELETE_LEGACY_PROFILE
+    else
+      read -rp "Delete unused legacy profile at $LEGACY_PROFILE? [y/N]: " DELETE_LEGACY_PROFILE
+    fi
+
+    if [[ "$DELETE_LEGACY_PROFILE" =~ ^[Yy] ]]; then
+      rm "$LEGACY_PROFILE"
+      print_result "Removed" "$LEGACY_PROFILE"
+    else
+      print_result "Kept" "$LEGACY_PROFILE"
+    fi
+  fi
+
+  LEGACY_CLEANUP_STATUS="cleaned"
+}
+
+symlink_matches() {
+  local path="$1"
+  local expected="$2"
+
+  if [ ! -L "$path" ]; then
+    return 1
+  fi
+
+  [ "$(readlink "$path")" = "$expected" ]
+}
+
+symlink_has_suffix() {
+  local path="$1"
+  local expected_suffix="$2"
+  local target=""
+
+  if [ ! -L "$path" ]; then
+    return 1
+  fi
+
+  target="$(readlink "$path")"
+  [[ "$target" == *"$expected_suffix" ]]
+}
+
+symlink_can_manage() {
+  local target="$1"
+  local source="$2"
+  local managed_suffix="$3"
+
+  if [ -L "$target" ]; then
+    symlink_matches "$target" "$source" || symlink_has_suffix "$target" "$managed_suffix"
+    return
+  fi
+
+  [ ! -e "$target" ]
+}
+
+ensure_symlink() {
+  local target="$1"
+  local source="$2"
+  local managed_suffix="$3"
+
+  if [ -L "$target" ]; then
+    if symlink_matches "$target" "$source"; then
+      return 0
+    fi
+
+    if symlink_has_suffix "$target" "$managed_suffix"; then
+      rm "$target" || return 1
+      ln -s "$source" "$target" || return 1
+      return 0
+    fi
+
+    return 1
+  fi
+
+  if [ -e "$target" ]; then
+    return 1
+  fi
+
+  ln -s "$source" "$target"
+}
+
+command_file_owned() {
+  local command_file="$1"
+
+  [ -f "$command_file" ] && grep -Fxq "$CLAUDE_COMMAND_WATERMARK" "$command_file"
+}
+
+command_file_can_manage() {
+  local command_file="$1"
+
+  if [ ! -e "$command_file" ]; then
+    return 0
+  fi
+
+  command_file_owned "$command_file"
+}
+
+write_claude_command() {
+  local command_file="$1"
+  local description="$2"
+  local argument_hint="$3"
+  local skill_name="$4"
+  local skill_dir="$5"
+  local template_name="$6"
+
+  cat >"$command_file" <<EOF
+---
+description: $description
+argument-hint: $argument_hint
+---
+
+$CLAUDE_COMMAND_WATERMARK
+
+Use the \`$skill_name\` workflow for this request.
+
+Time/filter: \`\$ARGUMENTS\`.
+
+Read @$skill_dir/instructions.md and @$skill_dir/templates/$template_name before generating output.
+EOF
+}
+
+install_claude() {
+  print_section "Claude Code"
+
+  read -rp "Install Claude Code wrapper? [y/N]: " INSTALL_CLAUDE
+  if [[ ! "$INSTALL_CLAUDE" =~ ^[Yy] ]]; then
+    print_result "Skipped" "Claude Code wrapper"
+    CLAUDE_STATUS="skipped"
+    return
+  fi
+
+  mkdir -p "$CLAUDE_COMMANDS_TARGET" "$CLAUDE_SKILLS_TARGET"
+
+  local command_files=(
+    "$CLAUDE_COMMANDS_TARGET/pm-skills:my-status.md"
+    "$CLAUDE_COMMANDS_TARGET/pm-skills:team-status.md"
+    "$CLAUDE_COMMANDS_TARGET/pm-skills:meeting-digest.md"
+    "$CLAUDE_COMMANDS_TARGET/pm-skills:slack-recap.md"
+  )
+  local command_file
+  for command_file in "${command_files[@]}"; do
+    if ! command_file_can_manage "$command_file"; then
+      print_result "Skipped" "$command_file is not managed by pm-skills"
+      CLAUDE_STATUS="skipped"
+      return
+    fi
+  done
+
+  local skill_names=(
+    "my-status"
+    "team-status"
+    "meeting-digest"
+    "slack-recap"
+  )
+  local skill
+  for skill in "${skill_names[@]}"; do
+    local source_dir="$CLAUDE_SKILLS_SOURCE/$skill"
+    local target_dir="$CLAUDE_SKILLS_TARGET/pm-skills-$skill"
+    local managed_suffix="plugins/pm-skills/skills/$skill"
+
+    if ! symlink_can_manage "$target_dir" "$source_dir" "$managed_suffix"; then
+      print_result "Skipped" "$target_dir is not managed by pm-skills"
+      CLAUDE_STATUS="skipped"
+      return
+    fi
+  done
+
+  for skill in "${skill_names[@]}"; do
+    local source_dir="$CLAUDE_SKILLS_SOURCE/$skill"
+    local target_dir="$CLAUDE_SKILLS_TARGET/pm-skills-$skill"
+    local managed_suffix="plugins/pm-skills/skills/$skill"
+
+    if ! ensure_symlink "$target_dir" "$source_dir" "$managed_suffix"; then
+      print_result "Skipped" "$target_dir is not managed by pm-skills"
+      CLAUDE_STATUS="skipped"
+      return
+    fi
+  done
+
+  write_claude_command \
+    "$CLAUDE_COMMANDS_TARGET/pm-skills:my-status.md" \
+    "Generate your personal status update" \
+    "[time period]" \
+    "my-status" \
+    "$CLAUDE_SKILLS_TARGET/pm-skills-my-status" \
+    "my-status-template.md"
+  write_claude_command \
+    "$CLAUDE_COMMANDS_TARGET/pm-skills:team-status.md" \
+    "Generate a team-wide status update" \
+    "[time period]" \
+    "team-status" \
+    "$CLAUDE_SKILLS_TARGET/pm-skills-team-status" \
+    "team-status-template.md"
+  write_claude_command \
+    "$CLAUDE_COMMANDS_TARGET/pm-skills:meeting-digest.md" \
+    "Summarize recent meetings and extract action items" \
+    "[topic or date range]" \
+    "meeting-digest" \
+    "$CLAUDE_SKILLS_TARGET/pm-skills-meeting-digest" \
+    "meeting-digest-template.md"
+  write_claude_command \
+    "$CLAUDE_COMMANDS_TARGET/pm-skills:slack-recap.md" \
+    "Recap important Slack messages requiring attention" \
+    "[time period]" \
+    "slack-recap" \
+    "$CLAUDE_SKILLS_TARGET/pm-skills-slack-recap" \
+    "slack-recap-template.md"
+
+  print_result "Installed" "~/.claude/commands, ~/.claude/skills"
+  CLAUDE_STATUS="installed"
+}
+
+install_codex() {
+  print_section "Codex"
+
+  if ! command -v codex >/dev/null 2>&1 && [ ! -d "$HOME/.codex" ]; then
+    print_result "Skipped" "codex not detected"
+    CODEX_STATUS="unavailable"
+    return
+  fi
+
+  read -rp "Install Codex wrapper? [y/N]: " INSTALL_CODEX
+  if [[ ! "$INSTALL_CODEX" =~ ^[Yy] ]]; then
+    print_result "Skipped" "Codex wrapper"
+    CODEX_STATUS="skipped"
+    return
+  fi
+
+  mkdir -p "$(dirname "$CODEX_TARGET")"
+
+  if ! symlink_can_manage "$CODEX_TARGET" "$CODEX_SOURCE" "adapters/codex/pm-skills"; then
+    print_result "Skipped" "$CODEX_TARGET is not managed by pm-skills"
+    print_result "Action required" "remove it manually to replace it"
+    CODEX_STATUS="skipped"
+    return
+  fi
+
+  if ! ensure_symlink "$CODEX_TARGET" "$CODEX_SOURCE" "adapters/codex/pm-skills"; then
+    print_result "Skipped" "$CODEX_TARGET is not managed by pm-skills"
+    print_result "Action required" "remove it manually to replace it"
+    CODEX_STATUS="skipped"
+    return
+  fi
+
+  print_result "Installed" "$CODEX_TARGET"
+  CODEX_STATUS="installed"
+}
+
+print_next_steps() {
+  print_section "Done"
+  if [ "$CLAUDE_STATUS" = "installed" ]; then
+    print_result "Claude" "/pm-skills:my-status"
+  fi
+  if [ "$CODEX_STATUS" = "installed" ]; then
+    print_result "Codex" "\$pm-skills my-status"
+  fi
+  if [ "$LEGACY_CLEANUP_STATUS" = "kept" ]; then
+    print_result "Kept" "legacy pm-claude-skills artifacts"
+  fi
+  print_result "Connect as needed" "Linear, Granola, Notion, Slack, etc."
+  echo ""
+}
+
+print_profile_only_next_steps() {
+  print_section "Done"
+  print_result "Saved" "$PROFILE_STATUS"
+  print_result "Next step" "run script/setup to install or update wrappers"
+  echo ""
+}
+
+print_banner
+assert_managed_paths_are_namespaced
+print_section "Provide some context on you and your work"
+ensure_profile
+if [ "$PROFILE_ONLY" = "true" ]; then
+  print_profile_only_next_steps
+  exit 0
+fi
+install_claude
+install_codex
+cleanup_legacy_installs
+print_next_steps

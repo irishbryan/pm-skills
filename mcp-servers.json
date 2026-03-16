@@ -1,15 +1,26 @@
 [
   {
-    "name": "granola",
+    "name": "linear",
     "type": "mcp",
-    "transport": "http",
-    "url": "https://mcp.granola.ai/mcp",
-    "scope": "user",
-    "prompt": "Do you use Granola for meeting notes?"
+    "required_by": ["team-status", "my-status"],
+    "notes": "Connect in the agent you use for issue and project data."
   },
   {
-    "name": "Notion",
+    "name": "granola",
+    "type": "mcp",
+    "required_by": ["team-status", "my-status", "meeting-digest"],
+    "notes": "Optional for status context, required for meeting-digest."
+  },
+  {
+    "name": "notion",
     "type": "plugin",
-    "prompt": "Install the Notion plugin?"
+    "required_by": ["team-status"],
+    "notes": "Optional context source for team-status."
+  },
+  {
+    "name": "slack",
+    "type": "mcp",
+    "required_by": ["slack-recap"],
+    "notes": "Required for slack-recap."
   }
 ]

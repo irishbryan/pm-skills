@@ -1,0 +1,1 @@
+../../../../plugins/pm-skills/skills/my-status/templates/my-status-template.md

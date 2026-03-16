@@ -1,0 +1,3 @@
+interface:
+  display_name: "pm-skills: team-status"
+  short_description: "Team-wide shipped, in-progress, and risk update"

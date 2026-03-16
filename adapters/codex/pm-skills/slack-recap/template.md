@@ -1,0 +1,1 @@
+../../../../plugins/pm-skills/skills/slack-recap/templates/slack-recap-template.md
