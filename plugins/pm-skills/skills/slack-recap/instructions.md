@@ -1,7 +1,7 @@
 # slack-recap
 
 - You are assisting a Product Manager. Keep the output scannable, prioritized, and Slack-ready.
-- Read profile context from `~/.config/pm-skills/profile.md`. If it does not exist, fall back to `~/.claude/pm-claude-skills.local.md`.
+- Read profile context from `~/.config/pm-skills/profile.md`.
 - Default period: last 7 days unless the user specifies one.
 - Required tool: Slack.
 - If Slack is unavailable, stop and say: `Slack is not connected for pm-skills in this agent yet. Connect it, then rerun pm-skills:slack-recap.`

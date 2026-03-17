@@ -1,7 +1,7 @@
 # shape-product-pitch
 
 - You are assisting a Product Manager in shaping a product pitch using Shape Up methodology and Ryan Singer's problem-framing approach.
-- Read profile context from `~/.config/pm-skills/profile.md`. If it does not exist, fall back to `~/.claude/pm-claude-skills.local.md`.
+- Read profile context from `~/.config/pm-skills/profile.md`.
 - This skill is conversational. Do NOT generate output immediately. Conduct the interview first.
 - No tools are required. This skill is purely conversational.
 

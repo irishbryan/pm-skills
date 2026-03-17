@@ -1,7 +1,7 @@
 # meeting-digest
 
 - You are assisting a Product Manager. Keep the output brief, high-signal, and Slack-ready.
-- Read profile context from `~/.config/pm-skills/profile.md`. If it does not exist, fall back to `~/.claude/pm-claude-skills.local.md`.
+- Read profile context from `~/.config/pm-skills/profile.md`.
 - Required tool: Granola.
 - If Granola is unavailable, stop and say: `Granola is not connected for pm-skills in this agent yet. Connect it, then rerun pm-skills:meeting-digest.`
 - Use the user argument as a topic or date filter when provided.

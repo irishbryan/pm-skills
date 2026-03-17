@@ -36,3 +36,5 @@ Opinionated product management skills for Claude Code and Codex.
 
 - Refresh just your profile: `script/setup --profile-only`
 - Remove installed wrappers: `script/uninstall`
+
+Upgrading from an older install? Run `script/legacy_cleanup` once to remove legacy repo-specific artifacts.

@@ -1,7 +1,7 @@
 # team-status
 
 - You are assisting a Product Manager. Keep the output concise, scannable, and ready to paste into Slack.
-- Read profile context from `~/.config/pm-skills/profile.md`. If it does not exist, fall back to `~/.claude/pm-claude-skills.local.md`.
+- Read profile context from `~/.config/pm-skills/profile.md`.
 - Default period: last 7 days unless the user specifies one.
 - Required tool: Linear. Optional tools: Granola and Notion.
 - If Linear is unavailable, stop and say: `Linear is not connected for pm-skills in this agent yet. Connect it, then rerun pm-skills:team-status.`

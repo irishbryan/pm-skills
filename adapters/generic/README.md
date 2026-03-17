@@ -15,5 +15,5 @@ For a new agent integration:
    - Granola for `meeting-digest`, optional for status skills
    - Notion optional for `team-status`
    - Slack for `slack-recap`
-4. Read user profile context from `~/.config/pm-skills/profile.md`, with legacy Claude fallback support if useful.
+4. Read user profile context from `~/.config/pm-skills/profile.md`.
 5. If a required integration is missing, stop and print the skill's setup message instead of guessing.
