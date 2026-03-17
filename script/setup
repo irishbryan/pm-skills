@@ -435,7 +435,7 @@ install_claude() {
     return
   fi
 
-  mkdir -p "$CLAUDE_COMMANDS_TARGET" "$CLAUDE_SKILLS_TARGET"
+  mkdir -p "$CLAUDE_COMMANDS_TARGET"
 
   local command_files=(
     "$CLAUDE_COMMANDS_TARGET/pm-skills:my-status.md"
@@ -460,28 +460,15 @@ install_claude() {
     "slack-recap"
     "shape-product-pitch"
   )
+
+  # Clean up legacy skill symlinks (commands now reference source directly)
   local skill
   for skill in "${skill_names[@]}"; do
-    local source_dir="$CLAUDE_SKILLS_SOURCE/$skill"
     local target_dir="$CLAUDE_SKILLS_TARGET/pm-skills-$skill"
     local managed_suffix="plugins/pm-skills/skills/$skill"
 
-    if ! symlink_can_manage "$target_dir" "$source_dir" "$managed_suffix"; then
-      print_result "Skipped" "$target_dir is not managed by pm-skills"
-      CLAUDE_STATUS="skipped"
-      return
-    fi
-  done
-
-  for skill in "${skill_names[@]}"; do
-    local source_dir="$CLAUDE_SKILLS_SOURCE/$skill"
-    local target_dir="$CLAUDE_SKILLS_TARGET/pm-skills-$skill"
-    local managed_suffix="plugins/pm-skills/skills/$skill"
-
-    if ! ensure_symlink "$target_dir" "$source_dir" "$managed_suffix"; then
-      print_result "Skipped" "$target_dir is not managed by pm-skills"
-      CLAUDE_STATUS="skipped"
-      return
+    if [ -L "$target_dir" ] && symlink_has_suffix "$target_dir" "$managed_suffix"; then
+      rm "$target_dir"
     fi
   done
 
@@ -490,38 +477,38 @@ install_claude() {
     "Generate your personal status update" \
     "[time period]" \
     "my-status" \
-    "$CLAUDE_SKILLS_TARGET/pm-skills-my-status" \
+    "$CLAUDE_SKILLS_SOURCE/my-status" \
     "my-status-template.md"
   write_claude_command \
     "$CLAUDE_COMMANDS_TARGET/pm-skills:team-status.md" \
     "Generate a team-wide status update" \
     "[time period]" \
     "team-status" \
-    "$CLAUDE_SKILLS_TARGET/pm-skills-team-status" \
+    "$CLAUDE_SKILLS_SOURCE/team-status" \
     "team-status-template.md"
   write_claude_command \
     "$CLAUDE_COMMANDS_TARGET/pm-skills:meeting-digest.md" \
     "Summarize recent meetings and extract action items" \
     "[topic or date range]" \
     "meeting-digest" \
-    "$CLAUDE_SKILLS_TARGET/pm-skills-meeting-digest" \
+    "$CLAUDE_SKILLS_SOURCE/meeting-digest" \
     "meeting-digest-template.md"
   write_claude_command \
     "$CLAUDE_COMMANDS_TARGET/pm-skills:slack-recap.md" \
     "Recap important Slack messages requiring attention" \
     "[time period]" \
     "slack-recap" \
-    "$CLAUDE_SKILLS_TARGET/pm-skills-slack-recap" \
+    "$CLAUDE_SKILLS_SOURCE/slack-recap" \
     "slack-recap-template.md"
   write_claude_command \
     "$CLAUDE_COMMANDS_TARGET/pm-skills:shape-product-pitch.md" \
     "Shape a product pitch using Shape Up methodology" \
     "[problem or idea]" \
     "shape-product-pitch" \
-    "$CLAUDE_SKILLS_TARGET/pm-skills-shape-product-pitch" \
+    "$CLAUDE_SKILLS_SOURCE/shape-product-pitch" \
     "shape-product-pitch-template.md"
 
-  print_result "Installed" "~/.claude/commands, ~/.claude/skills"
+  print_result "Installed" "~/.claude/commands"
   CLAUDE_STATUS="installed"
 }
 
