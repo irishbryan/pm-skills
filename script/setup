@@ -5,9 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 CONFIG_ROOT="${XDG_CONFIG_HOME:-$HOME/.config}/pm-skills"
 PROFILE_PATH="$CONFIG_ROOT/profile.md"
-LEGACY_PROFILE="$HOME/.claude/pm-claude-skills.local.md"
 CLAUDE_COMMANDS_TARGET="$HOME/.claude/commands"
-CLAUDE_SKILLS_TARGET="$HOME/.claude/skills"
 CLAUDE_SKILLS_SOURCE="$REPO_DIR/plugins/pm-skills/skills"
 CLAUDE_COMMAND_WATERMARK="<!-- managed-by: pm-skills -->"
 CODEX_SOURCE="$REPO_DIR/adapters/codex/pm-skills"
@@ -15,42 +13,42 @@ CODEX_TARGET="$HOME/.codex/skills/pm-skills"
 PROFILE_STATUS=""
 CLAUDE_STATUS="not installed"
 CODEX_STATUS="not installed"
-LEGACY_PROFILE_IMPORTED="false"
-LEGACY_CLEANUP_STATUS="not needed"
 REFRESH_PROFILE="false"
 PROFILE_ONLY="false"
 
-ensure_namespaced_path() {
-  local path="$1"
-  local base
+SKILLS=(my-status team-status meeting-digest slack-recap shape-product-pitch)
+SKILL_DESCRIPTIONS=(
+  "Generate your personal status update"
+  "Generate a team-wide status update"
+  "Summarize recent meetings and extract action items"
+  "Recap important Slack messages requiring attention"
+  "Shape a product pitch using Shape Up methodology"
+)
+SKILL_ARG_HINTS=(
+  "[time period]"
+  "[time period]"
+  "[topic or date range]"
+  "[time period]"
+  "[problem or idea]"
+)
 
-  base="$(basename "$path")"
+ensure_namespaced_path() {
+  local base
+  base="$(basename "$1")"
   case "$base" in
   pm-skills | pm-skills:* | pm-skills-*) ;;
   *)
-    echo "Refusing to manage non-namespaced path: $path" >&2
+    echo "Refusing to manage non-namespaced path: $1" >&2
     exit 1
     ;;
   esac
 }
 
 assert_managed_paths_are_namespaced() {
-  local command_file
-  local skill
-
   ensure_namespaced_path "$CODEX_TARGET"
-
-  for command_file in \
-    "$CLAUDE_COMMANDS_TARGET/pm-skills:my-status.md" \
-    "$CLAUDE_COMMANDS_TARGET/pm-skills:team-status.md" \
-    "$CLAUDE_COMMANDS_TARGET/pm-skills:meeting-digest.md" \
-    "$CLAUDE_COMMANDS_TARGET/pm-skills:slack-recap.md" \
-    "$CLAUDE_COMMANDS_TARGET/pm-skills:shape-product-pitch.md"; do
-    ensure_namespaced_path "$command_file"
-  done
-
-  for skill in my-status team-status meeting-digest slack-recap shape-product-pitch; do
-    ensure_namespaced_path "$CLAUDE_SKILLS_TARGET/pm-skills-$skill"
+  local skill
+  for skill in "${SKILLS[@]}"; do
+    ensure_namespaced_path "$CLAUDE_COMMANDS_TARGET/pm-skills:$skill.md"
   done
 }
 
@@ -65,9 +63,7 @@ EOF
 
 while [ $# -gt 0 ]; do
   case "$1" in
-  --refresh-profile)
-    REFRESH_PROFILE="true"
-    ;;
+  --refresh-profile) REFRESH_PROFILE="true" ;;
   --profile-only)
     PROFILE_ONLY="true"
     REFRESH_PROFILE="true"
@@ -84,62 +80,33 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-print_banner() {
-  echo ""
-  echo "pm-skills setup"
-}
-
-print_section() {
-  local label="$1"
-
-  echo ""
-  echo "$label"
-}
-
-print_result() {
-  local label="$1"
-  local value="$2"
-
-  echo "$label: $value"
-}
-
-trim() {
-  printf '%s' "$1" | xargs
-}
+print_banner() { echo "" && echo "pm-skills setup"; }
+print_section() { echo "" && echo "$1"; }
+print_result() { echo "$1: $2"; }
+trim() { printf '%s' "$1" | xargs; }
 
 profile_value() {
-  local file="$1"
-  local key="$2"
-
+  local file="$1" key="$2"
   [ -f "$file" ] || return 0
-
   awk -F': ' -v key="$key" '$0 ~ "^- " key ":" {print substr($0, index($0, ": ") + 2); exit}' "$file"
 }
 
 profile_section_list() {
-  local file="$1"
-  local section="$2"
-
+  local file="$1" section="$2"
   [ -f "$file" ] || return 0
-
   awk -v section="$section" '
     $0 == "## " section {in_section=1; next}
     in_section && /^## / {exit}
     in_section && /^- / {
       item = substr($0, 3)
-      if (length(item) > 0) {
-        items = items ? items ", " item : item
-      }
+      if (length(item) > 0) items = items ? items ", " item : item
     }
     END {print items}
   ' "$file"
 }
 
 prompt_with_default() {
-  local prompt="$1"
-  local default_value="${2:-}"
-  local value=""
-
+  local prompt="$1" default_value="${2:-}" value=""
   if [ -n "$default_value" ]; then
     read -rp "$prompt [$default_value]: " value
     printf '%s' "${value:-$default_value}"
@@ -150,20 +117,13 @@ prompt_with_default() {
 }
 
 confirm_optional() {
-  local prompt="$1"
   local reply=""
-
-  read -rp "$prompt [y/N]: " reply
+  read -rp "$1 [y/N]: " reply
   [[ "$reply" =~ ^[Yy] ]]
 }
 
 write_profile() {
-  local name="$1"
-  local email="$2"
-  local focus="$3"
-  local teams="$4"
-  local slack_channels="$5"
-
+  local name="$1" email="$2" focus="$3" teams="$4" slack_channels="$5"
   {
     printf '# pm-skills profile\n'
     printf '> Keep this file high-level. Avoid customer names, confidential project details, sensitive metrics, and exact roadmap dates.\n'
@@ -171,7 +131,6 @@ write_profile() {
     printf -- '- Name: %s\n' "$name"
     printf -- '- Email: %s\n' "$email"
     printf -- '- Focus areas: %s\n' "$focus"
-
     if [ -n "$teams" ]; then
       printf '\n## Teams\n'
       IFS=',' read -ra TEAM_ARRAY <<<"$teams"
@@ -180,12 +139,10 @@ write_profile() {
         [ -n "$team" ] && printf -- '- %s\n' "$team"
       done
     fi
-
     if [ -n "$slack_channels" ]; then
       printf '\n## Slack\n'
       printf -- '- Main channels or groups: %s\n' "$slack_channels"
     fi
-
     printf '\n## Session behavior\n'
     printf -- '- "last week" means previous Monday-Friday\n'
     printf -- '- For personal status, include coordination work as well as directly assigned work\n'
@@ -202,42 +159,15 @@ ensure_profile() {
 
   mkdir -p "$CONFIG_ROOT"
 
-  if [ -f "$LEGACY_PROFILE" ] && [ ! -f "$PROFILE_PATH" ] && [ "$REFRESH_PROFILE" != "true" ]; then
-    cp "$LEGACY_PROFILE" "$PROFILE_PATH"
-    print_result "Imported" "$PROFILE_PATH"
-    PROFILE_STATUS="$PROFILE_PATH"
-    LEGACY_PROFILE_IMPORTED="true"
-    return
-  fi
-
   local defaults_file=""
-  if [ -f "$PROFILE_PATH" ]; then
-    defaults_file="$PROFILE_PATH"
-  elif [ -f "$LEGACY_PROFILE" ]; then
-    defaults_file="$LEGACY_PROFILE"
-    LEGACY_PROFILE_IMPORTED="true"
-  fi
+  [ -f "$PROFILE_PATH" ] && defaults_file="$PROFILE_PATH"
 
-  local default_name
-  local default_email
-  local default_focus
-  local default_teams
-  local default_slack_channels
-  local has_default_slack="false"
+  local default_name default_email default_focus default_teams default_slack
   default_name="$(profile_value "$defaults_file" "Name")"
   default_email="$(profile_value "$defaults_file" "Email")"
   default_focus="$(profile_value "$defaults_file" "Focus areas")"
   default_teams="$(profile_section_list "$defaults_file" "Teams")"
-  default_slack_channels="$(profile_value "$defaults_file" "Main channels or groups")"
-  if [ -z "$default_slack_channels" ]; then
-    default_slack_channels="$(profile_value "$defaults_file" "Key channels or groups")"
-  fi
-  if [ -z "$default_slack_channels" ]; then
-    default_slack_channels="$(profile_value "$defaults_file" "Key channels")"
-  fi
-  if [ -n "$default_slack_channels" ]; then
-    has_default_slack="true"
-  fi
+  default_slack="$(profile_value "$defaults_file" "Main channels or groups")"
 
   PM_NAME="$(prompt_with_default "Name" "$default_name")"
   PM_EMAIL="$(prompt_with_default "Email" "$default_email")"
@@ -251,177 +181,40 @@ ensure_profile() {
   fi
 
   PM_SLACK_CHANNELS=""
-  if [ "$has_default_slack" = "true" ]; then
-    PM_SLACK_CHANNELS="$(prompt_with_default "What channels do you mainly work in? (optional)" "$default_slack_channels")"
+  if [ -n "$default_slack" ]; then
+    PM_SLACK_CHANNELS="$(prompt_with_default "What channels do you mainly work in? (optional)" "$default_slack")"
   elif confirm_optional "Add where you work in Slack day to day?"; then
     PM_SLACK_CHANNELS="$(prompt_with_default "What channels do you mainly work in?" "")"
   fi
 
-  write_profile \
-    "$PM_NAME" \
-    "$PM_EMAIL" \
-    "$PM_FOCUS" \
-    "$PM_TEAMS" \
-    "$PM_SLACK_CHANNELS"
-
+  write_profile "$PM_NAME" "$PM_EMAIL" "$PM_FOCUS" "$PM_TEAMS" "$PM_SLACK_CHANNELS"
   print_result "Saved" "$PROFILE_PATH"
   PROFILE_STATUS="$PROFILE_PATH"
 }
 
-cleanup_legacy_installs() {
-  print_section "Legacy cleanup"
-
-  local legacy_plugin_installed="false"
-  local cleanup_needed="false"
-
-  if command -v claude >/dev/null 2>&1; then
-    if claude plugin list 2>/dev/null | grep -q "^pm-claude-skills "; then
-      legacy_plugin_installed="true"
-      cleanup_needed="true"
-    fi
-  fi
-
-  if [ -f "$LEGACY_PROFILE" ]; then
-    cleanup_needed="true"
-  fi
-
-  if [ "$cleanup_needed" != "true" ]; then
-    print_result "Skipped" "no legacy pm-claude-skills artifacts found"
-    LEGACY_CLEANUP_STATUS="not needed"
-    return
-  fi
-
-  read -rp "Remove legacy pm-claude-skills artifacts? [y/N]: " CLEANUP_LEGACY
-  if [[ ! "$CLEANUP_LEGACY" =~ ^[Yy] ]]; then
-    print_result "Kept" "legacy pm-claude-skills artifacts"
-    LEGACY_CLEANUP_STATUS="kept"
-    return
-  fi
-
-  if [ "$legacy_plugin_installed" = "true" ]; then
-    claude plugin uninstall pm-claude-skills >/dev/null 2>&1 || true
-    claude plugin marketplace remove pm-claude-skills >/dev/null 2>&1 || true
-    print_result "Removed" "legacy Claude plugin and marketplace entry"
-  fi
-
-  if [ -f "$LEGACY_PROFILE" ]; then
-    if [ "$LEGACY_PROFILE_IMPORTED" = "true" ]; then
-      read -rp "Delete imported legacy profile at $LEGACY_PROFILE? [y/N]: " DELETE_LEGACY_PROFILE
-    else
-      read -rp "Delete unused legacy profile at $LEGACY_PROFILE? [y/N]: " DELETE_LEGACY_PROFILE
-    fi
-
-    if [[ "$DELETE_LEGACY_PROFILE" =~ ^[Yy] ]]; then
-      rm "$LEGACY_PROFILE"
-      print_result "Removed" "$LEGACY_PROFILE"
-    else
-      print_result "Kept" "$LEGACY_PROFILE"
-    fi
-  fi
-
-  LEGACY_CLEANUP_STATUS="cleaned"
-}
-
-symlink_matches() {
-  local path="$1"
-  local expected="$2"
-
-  if [ ! -L "$path" ]; then
-    return 1
-  fi
-
-  [ "$(readlink "$path")" = "$expected" ]
-}
-
-symlink_has_suffix() {
-  local path="$1"
-  local expected_suffix="$2"
-  local target=""
-
-  if [ ! -L "$path" ]; then
-    return 1
-  fi
-
-  target="$(readlink "$path")"
-  [[ "$target" == *"$expected_suffix" ]]
-}
-
-symlink_can_manage() {
-  local target="$1"
-  local source="$2"
-  local managed_suffix="$3"
-
-  if [ -L "$target" ]; then
-    symlink_matches "$target" "$source" || symlink_has_suffix "$target" "$managed_suffix"
-    return
-  fi
-
-  [ ! -e "$target" ]
-}
-
-ensure_symlink() {
-  local target="$1"
-  local source="$2"
-  local managed_suffix="$3"
-
-  if [ -L "$target" ]; then
-    if symlink_matches "$target" "$source"; then
-      return 0
-    fi
-
-    if symlink_has_suffix "$target" "$managed_suffix"; then
-      rm "$target" || return 1
-      ln -s "$source" "$target" || return 1
-      return 0
-    fi
-
-    return 1
-  fi
-
-  if [ -e "$target" ]; then
-    return 1
-  fi
-
-  ln -s "$source" "$target"
-}
-
 command_file_owned() {
-  local command_file="$1"
-
-  [ -f "$command_file" ] && grep -Fxq "$CLAUDE_COMMAND_WATERMARK" "$command_file"
-}
-
-command_file_can_manage() {
-  local command_file="$1"
-
-  if [ ! -e "$command_file" ]; then
-    return 0
-  fi
-
-  command_file_owned "$command_file"
+  [ -f "$1" ] && grep -Fxq "$CLAUDE_COMMAND_WATERMARK" "$1"
 }
 
 write_claude_command() {
-  local command_file="$1"
-  local description="$2"
-  local argument_hint="$3"
-  local skill_name="$4"
-  local skill_dir="$5"
-  local template_name="$6"
+  local i="$1"
+  local skill="${SKILLS[$i]}"
+  local command_file="$CLAUDE_COMMANDS_TARGET/pm-skills:$skill.md"
+  local skill_dir="$CLAUDE_SKILLS_SOURCE/$skill"
 
   cat >"$command_file" <<EOF
 ---
-description: $description
-argument-hint: $argument_hint
+description: ${SKILL_DESCRIPTIONS[$i]}
+argument-hint: ${SKILL_ARG_HINTS[$i]}
 ---
 
 $CLAUDE_COMMAND_WATERMARK
 
-Use the \`$skill_name\` workflow for this request.
+Use the \`$skill\` workflow for this request.
 
 Time/filter: \`\$ARGUMENTS\`.
 
-Read @$skill_dir/instructions.md and @$skill_dir/templates/$template_name before generating output.
+Read @$skill_dir/instructions.md and @$skill_dir/templates/${skill}-template.md before generating output.
 EOF
 }
 
@@ -437,76 +230,19 @@ install_claude() {
 
   mkdir -p "$CLAUDE_COMMANDS_TARGET"
 
-  local command_files=(
-    "$CLAUDE_COMMANDS_TARGET/pm-skills:my-status.md"
-    "$CLAUDE_COMMANDS_TARGET/pm-skills:team-status.md"
-    "$CLAUDE_COMMANDS_TARGET/pm-skills:meeting-digest.md"
-    "$CLAUDE_COMMANDS_TARGET/pm-skills:slack-recap.md"
-    "$CLAUDE_COMMANDS_TARGET/pm-skills:shape-product-pitch.md"
-  )
-  local command_file
-  for command_file in "${command_files[@]}"; do
-    if ! command_file_can_manage "$command_file"; then
+  local i skill command_file
+  for i in "${!SKILLS[@]}"; do
+    command_file="$CLAUDE_COMMANDS_TARGET/pm-skills:${SKILLS[$i]}.md"
+    if [ -e "$command_file" ] && ! command_file_owned "$command_file"; then
       print_result "Skipped" "$command_file is not managed by pm-skills"
       CLAUDE_STATUS="skipped"
       return
     fi
   done
 
-  local skill_names=(
-    "my-status"
-    "team-status"
-    "meeting-digest"
-    "slack-recap"
-    "shape-product-pitch"
-  )
-
-  # Clean up legacy skill symlinks (commands now reference source directly)
-  local skill
-  for skill in "${skill_names[@]}"; do
-    local target_dir="$CLAUDE_SKILLS_TARGET/pm-skills-$skill"
-    local managed_suffix="plugins/pm-skills/skills/$skill"
-
-    if [ -L "$target_dir" ] && symlink_has_suffix "$target_dir" "$managed_suffix"; then
-      rm "$target_dir"
-    fi
+  for i in "${!SKILLS[@]}"; do
+    write_claude_command "$i"
   done
-
-  write_claude_command \
-    "$CLAUDE_COMMANDS_TARGET/pm-skills:my-status.md" \
-    "Generate your personal status update" \
-    "[time period]" \
-    "my-status" \
-    "$CLAUDE_SKILLS_SOURCE/my-status" \
-    "my-status-template.md"
-  write_claude_command \
-    "$CLAUDE_COMMANDS_TARGET/pm-skills:team-status.md" \
-    "Generate a team-wide status update" \
-    "[time period]" \
-    "team-status" \
-    "$CLAUDE_SKILLS_SOURCE/team-status" \
-    "team-status-template.md"
-  write_claude_command \
-    "$CLAUDE_COMMANDS_TARGET/pm-skills:meeting-digest.md" \
-    "Summarize recent meetings and extract action items" \
-    "[topic or date range]" \
-    "meeting-digest" \
-    "$CLAUDE_SKILLS_SOURCE/meeting-digest" \
-    "meeting-digest-template.md"
-  write_claude_command \
-    "$CLAUDE_COMMANDS_TARGET/pm-skills:slack-recap.md" \
-    "Recap important Slack messages requiring attention" \
-    "[time period]" \
-    "slack-recap" \
-    "$CLAUDE_SKILLS_SOURCE/slack-recap" \
-    "slack-recap-template.md"
-  write_claude_command \
-    "$CLAUDE_COMMANDS_TARGET/pm-skills:shape-product-pitch.md" \
-    "Shape a product pitch using Shape Up methodology" \
-    "[problem or idea]" \
-    "shape-product-pitch" \
-    "$CLAUDE_SKILLS_SOURCE/shape-product-pitch" \
-    "shape-product-pitch-template.md"
 
   print_result "Installed" "~/.claude/commands"
   CLAUDE_STATUS="installed"
@@ -530,35 +266,22 @@ install_codex() {
 
   mkdir -p "$(dirname "$CODEX_TARGET")"
 
-  if ! symlink_can_manage "$CODEX_TARGET" "$CODEX_SOURCE" "adapters/codex/pm-skills"; then
-    print_result "Skipped" "$CODEX_TARGET is not managed by pm-skills"
-    print_result "Action required" "remove it manually to replace it"
+  if [ -e "$CODEX_TARGET" ] && [ ! -L "$CODEX_TARGET" ]; then
+    print_result "Skipped" "$CODEX_TARGET is not a symlink; remove it manually to replace"
     CODEX_STATUS="skipped"
     return
   fi
 
-  if ! ensure_symlink "$CODEX_TARGET" "$CODEX_SOURCE" "adapters/codex/pm-skills"; then
-    print_result "Skipped" "$CODEX_TARGET is not managed by pm-skills"
-    print_result "Action required" "remove it manually to replace it"
-    CODEX_STATUS="skipped"
-    return
-  fi
-
+  [ -L "$CODEX_TARGET" ] && rm "$CODEX_TARGET"
+  ln -s "$CODEX_SOURCE" "$CODEX_TARGET"
   print_result "Installed" "$CODEX_TARGET"
   CODEX_STATUS="installed"
 }
 
 print_next_steps() {
   print_section "Done"
-  if [ "$CLAUDE_STATUS" = "installed" ]; then
-    print_result "Claude" "/pm-skills:my-status"
-  fi
-  if [ "$CODEX_STATUS" = "installed" ]; then
-    print_result "Codex" "\$pm-skills my-status"
-  fi
-  if [ "$LEGACY_CLEANUP_STATUS" = "kept" ]; then
-    print_result "Kept" "legacy pm-claude-skills artifacts"
-  fi
+  [ "$CLAUDE_STATUS" = "installed" ] && print_result "Claude" "/pm-skills:my-status"
+  [ "$CODEX_STATUS" = "installed" ] && print_result "Codex" "\$pm-skills my-status"
   print_result "Connect as needed" "Linear, Granola, Notion, Slack, etc."
   echo ""
 }
@@ -580,5 +303,4 @@ if [ "$PROFILE_ONLY" = "true" ]; then
 fi
 install_claude
 install_codex
-cleanup_legacy_installs
 print_next_steps

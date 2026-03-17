@@ -4,168 +4,77 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 PROFILE_PATH="${XDG_CONFIG_HOME:-$HOME/.config}/pm-skills/profile.md"
-LEGACY_PROFILE="$HOME/.claude/pm-claude-skills.local.md"
 CLAUDE_COMMANDS_TARGET="$HOME/.claude/commands"
-CLAUDE_SKILLS_TARGET="$HOME/.claude/skills"
-CLAUDE_SKILLS_SOURCE="$REPO_DIR/plugins/pm-skills/skills"
 CLAUDE_COMMAND_WATERMARK="<!-- managed-by: pm-skills -->"
-CODEX_TARGET="$HOME/.codex/skills/pm-skills"
 CODEX_SOURCE="$REPO_DIR/adapters/codex/pm-skills"
+CODEX_TARGET="$HOME/.codex/skills/pm-skills"
 FORCE="false"
 
-ensure_namespaced_path() {
-  local path="$1"
-  local base
+SKILLS=(my-status team-status meeting-digest slack-recap shape-product-pitch)
 
-  base="$(basename "$path")"
+ensure_namespaced_path() {
+  local base
+  base="$(basename "$1")"
   case "$base" in
-    pm-skills|pm-skills:*|pm-skills-*)
-      ;;
-    *)
-      echo "Refusing to manage non-namespaced path: $path" >&2
-      exit 1
-      ;;
+  pm-skills | pm-skills:* | pm-skills-*) ;;
+  *)
+    echo "Refusing to manage non-namespaced path: $1" >&2
+    exit 1
+    ;;
   esac
 }
 
 assert_managed_paths_are_namespaced() {
-  local command_file
-  local skill
-
   ensure_namespaced_path "$CODEX_TARGET"
-
-  for command_file in \
-    "$CLAUDE_COMMANDS_TARGET/pm-skills:my-status.md" \
-    "$CLAUDE_COMMANDS_TARGET/pm-skills:team-status.md" \
-    "$CLAUDE_COMMANDS_TARGET/pm-skills:meeting-digest.md" \
-    "$CLAUDE_COMMANDS_TARGET/pm-skills:slack-recap.md"; do
-    ensure_namespaced_path "$command_file"
-  done
-
-  for skill in my-status team-status meeting-digest slack-recap; do
-    ensure_namespaced_path "$CLAUDE_SKILLS_TARGET/pm-skills-$skill"
+  local skill
+  for skill in "${SKILLS[@]}"; do
+    ensure_namespaced_path "$CLAUDE_COMMANDS_TARGET/pm-skills:$skill.md"
   done
 }
 
-if [ "${1:-}" = "-f" ]; then
-  FORCE="true"
-elif [ "${1:-}" = "--force" ]; then
+if [ "${1:-}" = "-f" ] || [ "${1:-}" = "--force" ]; then
   FORCE="true"
 elif [ -n "${1:-}" ]; then
   echo "Usage: script/uninstall [-f|--force]"
   exit 1
 fi
 
-print_banner() {
-  echo ""
-  if [ "$FORCE" = "true" ]; then
-    echo "pm-skills uninstall (force)"
-  else
-    echo "pm-skills uninstall"
-  fi
-}
-
-print_section() {
-  local label="$1"
-
-  echo ""
-  echo "$label"
-}
-
-print_result() {
-  local label="$1"
-  local value="$2"
-
-  echo "$label: $value"
-}
+print_section() { echo "" && echo "$1"; }
+print_result() { echo "$1: $2"; }
 
 command_file_owned() {
-  local command_file="$1"
-
-  [ -f "$command_file" ] && grep -Fxq "$CLAUDE_COMMAND_WATERMARK" "$command_file"
-}
-
-symlink_matches() {
-  local path="$1"
-  local expected="$2"
-
-  if [ ! -L "$path" ]; then
-    return 1
-  fi
-
-  [ "$(readlink "$path")" = "$expected" ]
-}
-
-symlink_has_suffix() {
-  local path="$1"
-  local expected_suffix="$2"
-  local target=""
-
-  if [ ! -L "$path" ]; then
-    return 1
-  fi
-
-  target="$(readlink "$path")"
-  [[ "$target" == *"$expected_suffix" ]]
-}
-
-symlink_owned() {
-  local path="$1"
-  local expected="$2"
-  local managed_suffix="$3"
-
-  symlink_matches "$path" "$expected" || symlink_has_suffix "$path" "$managed_suffix"
+  [ -f "$1" ] && grep -Fxq "$CLAUDE_COMMAND_WATERMARK" "$1"
 }
 
 assert_managed_paths_are_namespaced
-print_banner
+
+echo ""
+if [ "$FORCE" = "true" ]; then
+  echo "pm-skills uninstall (force)"
+else
+  echo "pm-skills uninstall"
+fi
 
 print_section "Claude Code"
-for command_file in \
-  "$CLAUDE_COMMANDS_TARGET/pm-skills:my-status.md" \
-  "$CLAUDE_COMMANDS_TARGET/pm-skills:team-status.md" \
-  "$CLAUDE_COMMANDS_TARGET/pm-skills:meeting-digest.md" \
-  "$CLAUDE_COMMANDS_TARGET/pm-skills:slack-recap.md"; do
+for skill in "${SKILLS[@]}"; do
+  local_file="$CLAUDE_COMMANDS_TARGET/pm-skills:$skill.md"
   if [ "$FORCE" = "true" ]; then
-    rm -f "$command_file"
-  elif command_file_owned "$command_file"; then
-    rm -f "$command_file"
+    rm -f "$local_file"
+  elif command_file_owned "$local_file"; then
+    rm -f "$local_file"
   fi
 done
-
-for skill in my-status team-status meeting-digest slack-recap; do
-  target="$CLAUDE_SKILLS_TARGET/pm-skills-$skill"
-  source="$CLAUDE_SKILLS_SOURCE/$skill"
-  managed_suffix="plugins/pm-skills/skills/$skill"
-  if [ "$FORCE" = "true" ]; then
-    rm -rf "$target"
-  elif symlink_owned "$target" "$source" "$managed_suffix"; then
-    rm "$target"
-  fi
-done
-
-print_result "Removed" "owned pm-skills Claude commands and skill links"
+print_result "Removed" "owned pm-skills Claude commands"
 
 print_section "Codex"
 if [ "$FORCE" = "true" ] && [ -e "$CODEX_TARGET" ]; then
   rm -rf "$CODEX_TARGET"
   print_result "Removed" "$CODEX_TARGET"
 elif [ -L "$CODEX_TARGET" ]; then
-  if symlink_owned "$CODEX_TARGET" "$CODEX_SOURCE" "adapters/codex/pm-skills"; then
-    rm "$CODEX_TARGET"
-    print_result "Removed" "$CODEX_TARGET"
-  else
-    print_result "Skipped" "$CODEX_TARGET is not managed by pm-skills"
-  fi
+  rm "$CODEX_TARGET"
+  print_result "Removed" "$CODEX_TARGET"
 else
   print_result "Skipped" "no pm-skills Codex symlink found"
-fi
-
-if [ "$FORCE" = "true" ] && command -v claude >/dev/null 2>&1; then
-  claude plugin uninstall pm-skills >/dev/null 2>&1 || true
-  claude plugin marketplace remove pm-skills >/dev/null 2>&1 || true
-  claude plugin uninstall pm-claude-skills >/dev/null 2>&1 || true
-  claude plugin marketplace remove pm-claude-skills >/dev/null 2>&1 || true
 fi
 
 print_section "Profile"
@@ -184,10 +93,6 @@ if [ -f "$PROFILE_PATH" ]; then
   fi
 else
   print_result "Skipped" "$PROFILE_PATH not found"
-fi
-
-if [ "$FORCE" = "true" ] && [ -f "$LEGACY_PROFILE" ]; then
-  rm -f "$LEGACY_PROFILE"
 fi
 
 print_section "Done"
