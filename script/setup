@@ -7,7 +7,8 @@ PRIMARY_CONFIG_PATH="${XDG_CONFIG_HOME:-$HOME/.config}/pm-skills/config.yml"
 FALLBACK_CONFIG_PATH="$HOME/.pm-skills/config.yml"
 CLAUDE_COMMANDS_TARGET="$HOME/.claude/commands"
 CLAUDE_SKILLS_TARGET="$HOME/.claude/skills"
-CODEX_SKILLS_TARGET="$HOME/.codex/skills"
+CODEX_SKILLS_TARGET="$HOME/.agents/skills"
+LEGACY_CODEX_SKILLS_TARGET="$HOME/.codex/skills"
 LEGACY_CODEX_NAMESPACE="$HOME/.codex/skills/pm-skills"
 MANAGED_COMMENT="<!-- managed-by: pm-skills repo=irishbryan/pm-skills -->"
 LEGACY_MANAGED_COMMENT="<!-- managed-by: pm-skills -->"
@@ -177,6 +178,18 @@ cleanup_legacy_skill_link() {
   fi
 }
 
+cleanup_legacy_codex_skill_links() {
+  local skill="$1" legacy_path="" current_target=""
+  for legacy_path in "$LEGACY_CODEX_SKILLS_TARGET/$(installed_skill_name "$skill")" "$LEGACY_CODEX_SKILLS_TARGET/pm-skills-$skill"; do
+    if [ -L "$legacy_path" ]; then
+      current_target="$(resolve_link_target "$legacy_path")"
+      if is_owned_skill_target "$current_target" "$skill"; then
+        rm "$legacy_path"
+      fi
+    fi
+  done
+}
+
 sync_claude_router() {
   local target_path="$CLAUDE_COMMANDS_TARGET/pm-skills.md"
   if [ -e "$target_path" ] && [ ! -L "$target_path" ] && ! is_managed_command_file "$target_path"; then
@@ -280,7 +293,7 @@ main() {
   echo "Skills"
   while IFS= read -r skill; do
     cleanup_legacy_skill_link "$CLAUDE_SKILLS_TARGET" "$skill"
-    cleanup_legacy_skill_link "$CODEX_SKILLS_TARGET" "$skill"
+    cleanup_legacy_codex_skill_links "$skill"
     remove_managed_claude_skill_command "$skill"
     claude_skill_status="$(sync_skill_link "$skill" "$CLAUDE_SKILLS_TARGET")"
     codex_skill_status="$(sync_skill_link "$skill" "$CODEX_SKILLS_TARGET")"

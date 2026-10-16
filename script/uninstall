@@ -9,7 +9,8 @@ LEGACY_CONFIG_PATH="${XDG_CONFIG_HOME:-$HOME/.config}/pm-skills/profile.md"
 LEGACY_CLAUDE_PROFILE_PATH="$HOME/.claude/pm-claude-skills.local.md"
 CLAUDE_COMMANDS_TARGET="$HOME/.claude/commands"
 CLAUDE_SKILLS_TARGET="$HOME/.claude/skills"
-CODEX_SKILLS_TARGET="$HOME/.codex/skills"
+CODEX_SKILLS_TARGET="$HOME/.agents/skills"
+LEGACY_CODEX_SKILLS_TARGET="$HOME/.codex/skills"
 LEGACY_CODEX_NAMESPACE="$HOME/.codex/skills/pm-skills"
 LEGACY_CLAUDE_PLUGIN_NAME="pm-claude-skills"
 MANAGED_COMMENT="<!-- managed-by: pm-skills repo=irishbryan/pm-skills -->"
@@ -220,6 +221,10 @@ main() {
   while IFS= read -r path; do
     remove_skill_link "$path"
   done < <(find "$CODEX_SKILLS_TARGET" -maxdepth 1 -type l \( -name 'pm-skills:*' -o -name 'pm-skills-*' \) 2>/dev/null | sort)
+
+  while IFS= read -r path; do
+    remove_skill_link "$path"
+  done < <(find "$LEGACY_CODEX_SKILLS_TARGET" -maxdepth 1 -type l \( -name 'pm-skills:*' -o -name 'pm-skills-*' \) 2>/dev/null | sort)
 
   remove_legacy_codex_namespace_if_owned
   remove_legacy_claude_plugin_if_present
